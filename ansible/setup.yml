@@ -1,0 +1,97 @@
+---
+- name: Set up Docker Swarm with GitHub Runners
+  hosts: all
+  become: yes
+  vars_files:
+    - vault_vars.yml
+  vars:
+    docker_compose_version: "2.24.0"
+    # Using Ansible Vault for sensitive data
+    github_token: "{{ vault_github_token }}"
+    github_org: "{{ vault_github_org | default('your-organization') }}"
+    github_repo: "{{ vault_github_repo | default('') }}"  # Empty for org-wide runners
+    runner_version: "2.314.1"        # GitHub Runner version
+    runner_name_prefix: "gcp-runner" # Prefix for runner names
+    swarm_manager_ip: "{{ ansible_default_ipv4.address }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+          - acl
+          - git
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+      vars:
+        packages:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+
+    - name: Install Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add current user to Docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Initialize Docker Swarm
+      command: docker swarm init --advertise-addr {{ swarm_manager_ip }}
+      register: swarm_init
+      changed_when: swarm_init.rc == 0
+      failed_when: swarm_init.rc != 0 and "This node is already part of a swarm" not in swarm_init.stderr
+
+    - name: Create runner configuration directory
+      file:
+        path: /opt/github-runners
+        state: directory
+        mode: '0755'
+
+    - name: Create Docker Swarm compose file
+      template:
+        src: stack.yml.j2
+        dest: /opt/github-runners/stack.yml
+        mode: '0644'
+
+    - name: Deploy the stack
+      command: docker stack deploy -c /opt/github-runners/stack.yml github-runners
+      args:
+        chdir: /opt/github-runners/

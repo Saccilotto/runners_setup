@@ -1,0 +1,10 @@
+---
+# This file should be encrypted with ansible-vault
+# These variables will be imported in setup.yml
+
+# GitHub access token with appropriate permissions
+vault_github_token: "your-github-token-here"
+
+# Other sensitive information you might need
+vault_github_org: "your-organization"
+vault_github_repo: "your-repository"

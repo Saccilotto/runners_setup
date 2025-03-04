@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  github-runner:
+    image: myoung34/github-runner:latest
+    environment:
+      - REPO_URL={% if github_repo != "" %}https://github.com/{{ github_org }}/{{ github_repo }}{% else %}{{ github_org }}{% endif %}
+      - RUNNER_NAME={{ runner_name_prefix }}-{{ "{{.Task.Slot}}" }}
+      - RUNNER_TOKEN={{ github_token }}
+      - RUNNER_WORKDIR=/tmp/github-runner/work
+      - RUNNER_GROUP=default
+      - RUNNER_SCOPE={% if github_repo != "" %}repo{% else %}org{% endif %}
+      - LABELS=gcp,docker,linux
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    deploy:
+      mode: replicated
+      replicas: 3
+      resources:
+        limits:
+          cpus: '0.6'
+          memory: 1.2G
+        reservations:
+          cpus: '0.3'
+          memory: 768M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+
+networks:
+  default:
+    driver: overlay
